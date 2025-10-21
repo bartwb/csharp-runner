@@ -15,6 +15,12 @@ builder.Services.AddCors(options => {
 var app = builder.Build();
 app.UseCors();
 
+app.MapGet("/health", () => {
+    // Just return a simple OK response
+    Console.WriteLine("Health check requested, returning OK."); // Optional: log that it was hit
+    return Results.Ok(new { status = "healthy" });
+});
+
 // Ons enige API-endpoint
 app.MapPost("/execute", async (HttpContext context) =>
 {
