@@ -24,4 +24,5 @@ jobs:
         with:
           context: .
           push: true
-          tags: goudvisvis/csharp-kernel:0.0.1
+          tags: goudvisvis/csharp-kernel:0.0.2
+          no-cache: true
