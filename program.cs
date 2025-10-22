@@ -61,8 +61,9 @@ app.MapPost("/runner", async (HttpContext context) =>
     string stdout = "";     // Variabele voor de Standaard Output
     string stderr = "";     // Variabele voor de Standaard Error Output
     int exitCode = -1;      // Exit code van het dotnet script proces
+    
     // Maak een unieke bestandsnaam om conflicten te voorkomen
-    var scriptPath = $"temp_script_{Guid.NewGuid()}.csx";
+    var scriptPath = Path.Combine("/tmp", $"temp_script_{Guid.NewGuid()}.csx");
 
     try
     {
