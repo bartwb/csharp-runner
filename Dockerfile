@@ -13,5 +13,5 @@ WORKDIR /app
 COPY --from=build /app/publish .
 # NO tool copy
 # NO path update for tools
-EXPOSE 8080
+EXPOSE 6000
 ENTRYPOINT ["dotnet", "webapi.dll"]
