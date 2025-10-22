@@ -20,6 +20,28 @@ builder.Services.AddCors(options => {
 var app = builder.Build();
 app.UseCors(); // Activeer het CORS beleid
 
+app.MapGet("/nuget-sources", () =>
+{
+    var cfg = System.IO.File.Exists("/root/.nuget/NuGet/NuGet.Config");
+    return Results.Json(new {
+        configExists = cfg,
+        configPath = "/root/.nuget/NuGet/NuGet.Config",
+        env = new {
+            NUGET_PACKAGES = Environment.GetEnvironmentVariable("NUGET_PACKAGES"),
+            HOME = Environment.GetEnvironmentVariable("HOME")
+        }
+    });
+});
+
+app.MapGet("/net", async () => {
+    try {
+        using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(10) };
+        var txt = await http.GetStringAsync("https://api.nuget.org/v3/index.json");
+        return Results.Ok(new { ok = true, len = txt.Length });
+    } catch (Exception e) { return Results.Json(new { ok=false, e.Message }, statusCode: 500); }
+});
+
+
 // --- Health Endpoint ---
 // Een simpel endpoint dat Azure kan aanroepen om te zien of de container leeft
 app.MapGet("/healthstatus", () => {
@@ -106,14 +128,22 @@ app.MapPost("/runner", async (HttpContext context) =>
                 }
                 debugLog.Add($"[Execute] Using dotnet-script path: {dotnetScriptPath}");
 
-                // Configureer het proces om te starten
-                process.StartInfo.FileName = dotnetScriptPath; // Het commando
-                process.StartInfo.Arguments = $"\"{scriptPath}\""; // Het argument (het script-bestand)
-                process.StartInfo.RedirectStandardOutput = true; // Vang stdout op
-                process.StartInfo.RedirectStandardError = true;  // Vang stderr op
-                process.StartInfo.UseShellExecute = false;      // Vereist voor redirect
-                process.StartInfo.CreateNoWindow = true;       // Geen UI tonen
-                process.StartInfo.WorkingDirectory = "/app";   // Werkmap expliciet instellen
+                 // --- Process config ---
+                process.StartInfo.FileName = dotnetScriptPath;
+                process.StartInfo.Arguments = $"\"{scriptPath}\"";
+                process.StartInfo.RedirectStandardOutput = true;
+                process.StartInfo.RedirectStandardError  = true;
+                process.StartInfo.UseShellExecute = false;
+                process.StartInfo.CreateNoWindow  = true;
+
+                // (1) Werkdirectory naar /tmp (schrijfbaar)
+                process.StartInfo.WorkingDirectory = "/tmp";
+
+                // (2) Expliciete env vars voor NuGet/dotnet (extra zeker, naast Dockerfile ENV)
+                process.StartInfo.Environment["NUGET_PACKAGES"]                 = "/root/.nuget/packages";
+                process.StartInfo.Environment["DOTNET_SKIP_FIRST_TIME_EXPERIENCE"] = "1";
+                process.StartInfo.Environment["DOTNET_CLI_TELEMETRY_OPTOUT"]    = "1";
+                process.StartInfo.Environment["HOME"]                           = "/root";
 
                 debugLog.Add($"[Execute] Starting process: {process.StartInfo.FileName} {process.StartInfo.Arguments}");
 

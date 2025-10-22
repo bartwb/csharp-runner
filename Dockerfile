@@ -1,46 +1,65 @@
-# Fase 1: De C# API bouwen EN de tool installeren EN de cache vullen
+# ===== Fase 1: Build + tools + cache prep =====
 FROM mcr.microsoft.com/dotnet/sdk:8.0 AS build
-
 WORKDIR /src
 
-# Kopieer en bouw het project
+# NuGet/Dotnet env voor voorspelbaarheid en snelheid
+ENV NUGET_PACKAGES=/root/.nuget/packages \
+    DOTNET_SKIP_FIRST_TIME_EXPERIENCE=1 \
+    DOTNET_CLI_TELEMETRY_OPTOUT=1 \
+    DOTNET_NOLOGO=1 \
+    DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=1 \
+    HOME=/root
+
+# NuGet.Config met nuget.org
+RUN mkdir -p /root/.nuget/NuGet
+RUN printf '<configuration>\n  <packageSources>\n    <add key="nuget.org" value="https://api.nuget.org/v3/index.json" protocolVersion="3" />\n  </packageSources>\n</configuration>\n' > /root/.nuget/NuGet/NuGet.Config
+
+# Restore & publish je webapi
 COPY *.csproj .
-RUN dotnet restore
+RUN dotnet restore --configfile /root/.nuget/NuGet/NuGet.Config
 COPY . .
-RUN dotnet publish -c Release -o /app/publish
+RUN dotnet publish -c Release -o /app/publish --no-restore
 
-# Installeer de 'dotnet-script' tool HIER (in de SDK stage)
+# dotnet-script installeren
 RUN dotnet tool install -g dotnet-script
-
-# !! NIEUWE STAP: Voer een dummy dotnet-script uit om de cache te vullen !!
-# Maak een leeg script bestand
-RUN touch /src/dummy.csx
-# Voer het uit. Dit triggert de 'dotnet restore' tijdens de build.
-# We negeren eventuele fouten van het lege script zelf met '|| true'.
-RUN /root/.dotnet/tools/dotnet-script /src/dummy.csx || true
-# Verwijder het dummy bestand weer
-RUN rm /src/dummy.csx
-
-
-# Fase 2: De uiteindelijke image maken
-FROM mcr.microsoft.com/dotnet/aspnet:8.0 AS final
-
-WORKDIR /app
-COPY --from=build /app/publish .
-
-# Kopieer de geïnstalleerde tool VAN DE build stage
-COPY --from=build /root/.dotnet/tools /root/.dotnet/tools
-# !! NIEUW: Kopieer de gevulde NuGet cache VAN DE build stage !!
-COPY --from=build /root/.nuget /root/.nuget
-# !! NIEUW: Kopieer de gevulde dotnet-script cache VAN DE build stage !!
-COPY --from=build /root/.cache/dotnet-script /root/.cache/dotnet-script
-
-
-# Zorg dat de 'dotnet-script' tool in het PATH staat
 ENV PATH="$PATH:/root/.dotnet/tools"
 
-# De poort die onze API gebruikt (zie Program.cs)
-EXPOSE 6000
+# Prewarm dotnet-script cache (maakt .cache/ en script.csproj aan)
+WORKDIR /tmp/dotnet-script-cache-prep
+RUN echo 'Console.WriteLine(1+2);' > prep.csx \
+ && /root/.dotnet/tools/dotnet-script prep.csx || true
 
-# Het commando om de API te starten
+# Expliciete restore van het gegenereerde script-proj met de juiste NuGet.Config
+# Locatie kan per versie verschillen; probeer beide vaak voorkomende paden.
+RUN set -eux; \
+    for P in /root/.cache/dotnet-script/app/net8.0 /root/.cache/dotnet-script/app; do \
+      if [ -f "$P/script.csproj" ]; then \
+        dotnet restore "$P/script.csproj" -r linux-x64 --configfile /root/.nuget/NuGet/NuGet.Config || true; \
+      fi; \
+    done
+
+# ===== Fase 2: Runtime =====
+FROM mcr.microsoft.com/dotnet/aspnet:8.0 AS final
+WORKDIR /app
+
+# Zelfde env als bij build, zodat runtime restore niet opnieuw first-time dingen doet
+ENV NUGET_PACKAGES=/root/.nuget/packages \
+    DOTNET_SKIP_FIRST_TIME_EXPERIENCE=1 \
+    DOTNET_CLI_TELEMETRY_OPTOUT=1 \
+    DOTNET_NOLOGO=1 \
+    DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=1 \
+    HOME=/root \
+    ASPNETCORE_URLS=http://0.0.0.0:6000
+
+# Kopieer app + tools + caches
+COPY --from=build /app/publish /app
+COPY --from=build /root/.dotnet/tools /root/.dotnet/tools
+COPY --from=build /root/.nuget /root/.nuget
+COPY --from=build /root/.cache/dotnet-script /root/.cache/dotnet-script
+ENV PATH="$PATH:/root/.dotnet/tools"
+
+# Zorg dat tmp bestaat (je runner gebruikt dit graag als working dir voor scripts)
+RUN mkdir -p /tmp && chmod 1777 /tmp
+
+EXPOSE 6000
 ENTRYPOINT ["dotnet", "webapi.dll"]
