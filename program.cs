@@ -69,18 +69,22 @@ app.MapPost("/execute", async (HttpContext context) =>
             var stdoutTask = process.StandardOutput.ReadToEndAsync();
             var stderrTask = process.StandardError.ReadToEndAsync();
 
-            bool exited = await process.WaitForExitAsync(TimeSpan.FromSeconds(30)); 
-
-            if (!exited) {
-                 var timeoutMsg = "Process timed out after 30 seconds.";
-                 stderr += $"\n{timeoutMsg}";
-                 debugLog.Add(timeoutMsg); // Log
-                 try { process.Kill(); } catch {} 
-            } else {
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30)); // Maak een CancellationTokenSource met 30s timeout
+            bool exitedCleanly = false;
+            try
+            {
+                await process.WaitForExitAsync(cts.Token); // Geef de CancellationToken mee
+                exitedCleanly = true; // Process is zelf gestopt
                  exitCode = process.ExitCode; 
                  debugLog.Add($"Process exited with code: {exitCode}."); // Log
             }
-
+            catch (OperationCanceledException) // Deze exception treedt op bij timeout
+            {
+                var timeoutMsg = "Process timed out after 30 seconds.";
+                stderr += $"\n{timeoutMsg}";
+                debugLog.Add(timeoutMsg); // Log
+                try { process.Kill(); } catch {} // Probeer proces te stoppen
+            }
             stdout = await stdoutTask;
             stderr = await stderrTask;
 
