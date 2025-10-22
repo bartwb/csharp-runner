@@ -22,7 +22,7 @@ app.UseCors(); // Activeer het CORS beleid
 
 // --- Health Endpoint ---
 // Een simpel endpoint dat Azure kan aanroepen om te zien of de container leeft
-app.MapGet("/health", () => {
+app.MapGet("/healthstatus", () => {
     Console.WriteLine("[Health Check] Health check requested, returning OK."); // Log voor debugging
     return Results.Ok(new { status = "healthy" }); // Stuur simpel "OK" terug
 });
