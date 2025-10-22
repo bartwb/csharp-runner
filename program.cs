@@ -29,7 +29,7 @@ app.MapGet("/healthstatus", () => {
 
 // --- Execute Endpoint ---
 // Het hoofd-endpoint dat C# code ontvangt en uitvoert
-app.MapPost("/execute", async (HttpContext context) =>
+app.MapPost("/runner", async (HttpContext context) =>
 {
     // Lijst om interne debug logs op te vangen
     var debugLog = new List<string>();
