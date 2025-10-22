@@ -86,7 +86,7 @@ app.MapPost("/execute", async (HttpContext context) =>
              stderr = $"Failed to write script file: {e.Message}";
              debugLog.Add($"[Execute] ERROR: {stderr}");
              // Dit is een serverfout, stuur 500 terug
-             return Results.StatusCode(500, new { stdout = "", stderr, exitCode = -1, debugLog });
+             return Results.Json(new { stdout = "", stderr, exitCode = -1, debugLog }, statusCode: 500);
         }
 
 
@@ -102,7 +102,7 @@ app.MapPost("/execute", async (HttpContext context) =>
                 {
                     stderr = "Internal Server Error: dotnet-script tool not found.";
                     debugLog.Add($"[Execute] FATAL ERROR: dotnet-script tool not found at {dotnetScriptPath}");
-                    return Results.StatusCode(500, new { stdout = "", stderr, exitCode = -1, debugLog });
+                    return Results.Json(new { stdout = "", stderr, exitCode = -1, debugLog }, statusCode: 500);
                 }
                 debugLog.Add($"[Execute] Using dotnet-script path: {dotnetScriptPath}");
 
@@ -145,6 +145,7 @@ app.MapPost("/execute", async (HttpContext context) =>
                 // Wacht op het proces om te eindigen, met een timeout
                 using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30)); // 30 seconden timeout
                 bool exitedCleanly = false;
+                
                 try
                 {
                     // Wacht asynchroon tot het proces stopt OF de timeout optreedt
