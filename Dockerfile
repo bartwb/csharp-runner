@@ -24,19 +24,29 @@ RUN dotnet publish -c Release -o /app/publish --no-restore
 RUN dotnet tool install -g dotnet-script
 ENV PATH="$PATH:/root/.dotnet/tools"
 
-# Prewarm dotnet-script cache (maakt .cache/ en script.csproj aan)
+# ---------- PREWARM 1: cache voor 'app' werkmap ----------
 WORKDIR /tmp/dotnet-script-cache-prep
 RUN echo 'Console.WriteLine(1+2);' > prep.csx \
  && /root/.dotnet/tools/dotnet-script prep.csx || true
 
-# Expliciete restore van het gegenereerde script-proj met de juiste NuGet.Config
-# Locatie kan per versie verschillen; probeer beide vaak voorkomende paden.
+# Expliciete restore van het gegenereerde script-proj (app/* varianten)
 RUN set -eux; \
     for P in /root/.cache/dotnet-script/app/net8.0 /root/.cache/dotnet-script/app; do \
       if [ -f "$P/script.csproj" ]; then \
         dotnet restore "$P/script.csproj" -r linux-x64 --configfile /root/.nuget/NuGet/NuGet.Config || true; \
       fi; \
     done
+
+# ---------- PREWARM 2: cache voor runtime werkmap '/tmp' ----------
+WORKDIR /tmp
+RUN echo 'Console.WriteLine(42);' > prep.csx \
+ && /root/.dotnet/tools/dotnet-script prep.csx || true
+
+# Expliciete restore van de '/tmp' cache
+RUN if [ -f /root/.cache/dotnet-script/tmp/net8.0/script.csproj ]; then \
+      dotnet restore /root/.cache/dotnet-script/tmp/net8.0/script.csproj \
+        -r linux-x64 --configfile /root/.nuget/NuGet/NuGet.Config || true; \
+    fi
 
 # ===== Fase 2: Runtime =====
 FROM mcr.microsoft.com/dotnet/aspnet:8.0 AS final
@@ -58,7 +68,7 @@ COPY --from=build /root/.nuget /root/.nuget
 COPY --from=build /root/.cache/dotnet-script /root/.cache/dotnet-script
 ENV PATH="$PATH:/root/.dotnet/tools"
 
-# Zorg dat tmp bestaat (je runner gebruikt dit graag als working dir voor scripts)
+# Zorg dat /tmp bestaat en schrijfbaar is
 RUN mkdir -p /tmp && chmod 1777 /tmp
 
 EXPOSE 6000
