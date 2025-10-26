@@ -1,4 +1,4 @@
-# C# Runner P.O.C. — C# in een Hyper‑V geïsoleerde ACA container
+# C# Runner P.O.C. 
 
 Korte omschrijving
 - Dit repository is een proof‑of‑concept dat aantoont dat C# code uitvoerbaar is binnen een Hyper‑V geïsoleerde Azure Container Apps (ACA) container.
