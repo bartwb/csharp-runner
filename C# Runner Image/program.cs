@@ -1,14 +1,12 @@
 using System.Diagnostics;
-using System.Text.Json; // Nodig voor JSON parsing
-using System.Text;     // Nodig voor StringBuilder als je dat zou gebruiken
-using System;         // Nodig voor Environment, Guid etc.
-using System.IO;       // Nodig voor StreamReader, File etc.
-using System.Threading; // Nodig voor CancellationTokenSource
+using System.Text.Json; 
+using System.Text;    
+using System;
+using System.IO;      
+using System.Threading; 
 
 var builder = WebApplication.CreateBuilder(args);
 
-// --- CORS Configuratie ---
-// Sta Cross-Origin (CORS) verzoeken toe zodat je React app kan verbinden
 builder.Services.AddCors(options => {
     options.AddDefaultPolicy(policy => {
         policy.AllowAnyOrigin() // Sta elke oorsprong toe (voor P.O.C. is dit oké)
@@ -18,56 +16,30 @@ builder.Services.AddCors(options => {
 });
 
 var app = builder.Build();
-app.UseCors(); // Activeer het CORS beleid
+app.UseCors(); 
 
-app.MapGet("/nuget-sources", () =>
-{
-    var cfg = System.IO.File.Exists("/root/.nuget/NuGet/NuGet.Config");
-    return Results.Json(new {
-        configExists = cfg,
-        configPath = "/root/.nuget/NuGet/NuGet.Config",
-        env = new {
-            NUGET_PACKAGES = Environment.GetEnvironmentVariable("NUGET_PACKAGES"),
-            HOME = Environment.GetEnvironmentVariable("HOME")
-        }
-    });
-});
-
-app.MapGet("/net", async () => {
-    try {
-        using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(10) };
-        var txt = await http.GetStringAsync("https://api.nuget.org/v3/index.json");
-        return Results.Ok(new { ok = true, len = txt.Length });
-    } catch (Exception e) { return Results.Json(new { ok=false, e.Message }, statusCode: 500); }
-});
-
-
-// --- Health Endpoint ---
-// Een simpel endpoint dat Azure kan aanroepen om te zien of de container leeft
 app.MapGet("/healthstatus", () => {
     Console.WriteLine("[Health Check] Health check requested, returning OK."); // Log voor debugging
     return Results.Ok(new { status = "healthy" }); // Stuur simpel "OK" terug
 });
 
-// --- Execute Endpoint ---
-// Het hoofd-endpoint dat C# code ontvangt en uitvoert
 app.MapPost("/runner", async (HttpContext context) =>
 {
     // Lijst om interne debug logs op te vangen
     var debugLog = new List<string>();
-    debugLog.Add("[Execute] Request received."); // Eerste log entry
+    debugLog.Add("[Execute] Request received."); 
 
-    string code = "";       // Variabele voor de C# code
-    string stdout = "";     // Variabele voor de Standaard Output
-    string stderr = "";     // Variabele voor de Standaard Error Output
-    int exitCode = -1;      // Exit code van het dotnet script proces
+    string code = "";       
+    string stdout = "";   
+    string stderr = "";  
+    int exitCode = -1; // Exit code van het dotnet script proces
     
-    // Maak een unieke bestandsnaam om conflicten te voorkomen
+    // Maak altijd een unieke bestandsnaam om problemen te voorkomen
     var scriptPath = Path.Combine("/tmp", $"temp_script_{Guid.NewGuid()}.csx");
 
     try
     {
-        // 1. Lees Code uit Request Body
+        // Lees Code uit Request Body
         debugLog.Add("[Execute] Reading request body...");
         using (var reader = new StreamReader(context.Request.Body))
         {
@@ -75,17 +47,16 @@ app.MapPost("/runner", async (HttpContext context) =>
             debugLog.Add($"[Execute] Raw body received (length: {body.Length}).");
             try
             {
-                // Parse de verwachte JSON: { "code": "..." }
+                // Haal de code uit de JSON
                 var jsonBody = JsonDocument.Parse(body);
                 code = jsonBody.RootElement.GetProperty("code").GetString() ?? "";
                 debugLog.Add($"[Execute] Code extracted (length: {code.Length}).");
             }
-            catch (Exception e) // Vang fouten op bij het parsen van JSON
+            catch (Exception e) 
             {
                 var errorMsg = $"JSON parse error: {e.Message}";
-                stderr = errorMsg; // Zet de fout in stderr
-                debugLog.Add($"[Execute] ERROR: {errorMsg}"); // Log de fout
-                // Stuur 400 Bad Request terug met de logs
+                stderr = errorMsg; 
+                debugLog.Add($"[Execute] ERROR: {errorMsg}"); // Log de fout        
                 return Results.BadRequest(new { stdout = "", stderr, exitCode = -1, debugLog });
             }
         }
@@ -98,29 +69,27 @@ app.MapPost("/runner", async (HttpContext context) =>
             return Results.BadRequest(new { stdout = "", stderr, exitCode = -1, debugLog });
         }
 
-        // 2. Sla Code op in Tijdelijk Bestand
+        // Sla Code op in Tijdelijk Bestand
         try
         {
             await File.WriteAllTextAsync(scriptPath, code);
             debugLog.Add($"[Execute] Code saved to temporary file: {scriptPath}.");
         }
-        catch (Exception e) // Vang fouten op bij het schrijven van het bestand
+        catch (Exception e)
         {
              stderr = $"Failed to write script file: {e.Message}";
              debugLog.Add($"[Execute] ERROR: {stderr}");
-             // Dit is een serverfout, stuur 500 terug
              return Results.Json(new { stdout = "", stderr, exitCode = -1, debugLog }, statusCode: 500);
         }
 
 
-        // 3. Voer Script uit met dotnet-script
+        // Voer Script uit met dotnet-script
         try
         {
             using (var process = new Process())
             {
-                // Gebruik het expliciete pad waar de tool geïnstalleerd is in de Dockerfile
+                
                 string dotnetScriptPath = "/root/.dotnet/tools/dotnet-script";
-                // Controleer of het bestand bestaat
                 if (!File.Exists(dotnetScriptPath))
                 {
                     stderr = "Internal Server Error: dotnet-script tool not found.";
@@ -129,7 +98,6 @@ app.MapPost("/runner", async (HttpContext context) =>
                 }
                 debugLog.Add($"[Execute] Using dotnet-script path: {dotnetScriptPath}");
 
-                 // --- Process config ---
                 process.StartInfo.FileName = dotnetScriptPath;
                 process.StartInfo.Arguments = $"\"{scriptPath}\"";
                 process.StartInfo.RedirectStandardOutput = true;
@@ -137,10 +105,10 @@ app.MapPost("/runner", async (HttpContext context) =>
                 process.StartInfo.UseShellExecute = false;
                 process.StartInfo.CreateNoWindow  = true;
 
-                // (1) Werkdirectory naar /tmp (schrijfbaar)
+                // Werkdirectory naar /tmp - Nodig om het in ACA te kunnen laten werken
                 process.StartInfo.WorkingDirectory = "/tmp";
 
-                // (2) Expliciete env vars voor NuGet/dotnet (extra zeker, naast Dockerfile ENV)
+                // Expliciete env vars voor NuGet/dotnet - Nodig om het in ACA te kunnen laten werken
                 process.StartInfo.Environment["NUGET_PACKAGES"]                 = "/root/.nuget/packages";
                 process.StartInfo.Environment["DOTNET_SKIP_FIRST_TIME_EXPERIENCE"] = "1";
                 process.StartInfo.Environment["DOTNET_CLI_TELEMETRY_OPTOUT"]    = "1";
@@ -148,65 +116,61 @@ app.MapPost("/runner", async (HttpContext context) =>
 
                 debugLog.Add($"[Execute] Starting process: {process.StartInfo.FileName} {process.StartInfo.Arguments}");
 
-                var outputData = new List<string>(); // Lijst voor stdout regels
-                var errorData = new List<string>();  // Lijst voor stderr regels
+                var outputData = new List<string>(); 
+                var errorData = new List<string>(); 
 
-                // Event handlers om output/error direct op te vangen
                 process.OutputDataReceived += (sender, args) => {
                     if (args.Data != null) {
                         outputData.Add(args.Data);
-                        // Log elke stdout regel direct
                         debugLog.Add($"[dotnet-script stdout] {args.Data}");
                     }
                 };
                 process.ErrorDataReceived += (sender, args) => {
                     if (args.Data != null) {
                         errorData.Add(args.Data);
-                        // Log elke stderr regel direct
                         debugLog.Add($"[dotnet-script stderr] {args.Data}");
                     }
                 };
 
-                // Start het proces
+                // Start het uitvoeren van de code met dotnet-script
                 process.Start();
-                // Begin met het asynchroon lezen van de output streams
                 process.BeginOutputReadLine();
                 process.BeginErrorReadLine();
 
-                // Wacht op het proces om te eindigen, met een timeout
-                using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30)); // 30 seconden timeout
+                // Wacht op het proces om te eindigen met een timeout
+                using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30)); 
                 bool exitedCleanly = false;
                 
                 try
                 {
-                    // Wacht asynchroon tot het proces stopt OF de timeout optreedt
+                    // Wacht asynchroon tot het proces stopt of er timeout komt
                     await process.WaitForExitAsync(cts.Token);
                     exitedCleanly = true; // Proces is zelf gestopt
-                    exitCode = process.ExitCode; // Sla de exit code op
+                    exitCode = process.ExitCode; 
                     debugLog.Add($"[Execute] Process exited with code: {exitCode}.");
                 }
                 catch (OperationCanceledException) // Timeout is opgetreden
                 {
                     var timeoutMsg = "Process timed out after 30 seconds.";
-                    stderr = timeoutMsg; // Zet dit als de primaire foutmelding
+                    stderr = timeoutMsg; 
                     debugLog.Add($"[Execute] ERROR: {timeoutMsg}");
                     try { process.Kill(true); } // Probeer het proces te stoppen
-                    catch (InvalidOperationException) { /* Proces was al gestopt */ }
+                    catch (InvalidOperationException) // Proces was al gestopt
                     catch (Exception killEx) { debugLog.Add($"[Execute] Error trying to kill process: {killEx.Message}"); }
                 }
                 catch (Exception waitEx) // Vang andere fouten op tijdens het wachten
                 {
                      var waitErrorMsg = $"Error waiting for process exit: {waitEx.Message}";
-                     stderr = waitErrorMsg; // Zet dit als de primaire foutmelding
+                     stderr = waitErrorMsg;
                      debugLog.Add($"[Execute] ERROR: {waitErrorMsg}");
                 }
 
-                // Combineer de opgevangen regels (NA het wachten of timeout)
+                // Combineer de opntvangen regels
                 stdout = string.Join(Environment.NewLine, outputData);
-                // Combineer stderr regels en voeg eventuele timeout/exception meldingen toe
+                // Combineer stderr regels en voeg timeout/exception meldingen toe
                 string processStderr = string.Join(Environment.NewLine, errorData);
                 if (!string.IsNullOrEmpty(processStderr)) {
-                     // Voeg proces stderr toe aan eventuele eerdere fouten (zoals timeout)
+                     // Voeg proces stderr toe aan eventuele eerdere fouten
                      stderr = string.IsNullOrEmpty(stderr) ? processStderr : $"{stderr}\n{processStderr}";
                 }
 
@@ -217,12 +181,11 @@ app.MapPost("/runner", async (HttpContext context) =>
         catch (Exception e) // Vang fouten op bij het opzetten/starten van het proces
         {
             var processErrorMsg = $"Process execution setup/start EXCEPTION: {e.ToString()}";
-            // Voeg toe aan stderr
             stderr = string.IsNullOrEmpty(stderr) ? processErrorMsg : $"{stderr}\n{processErrorMsg}";
             debugLog.Add($"[Execute] !!! EXCEPTION during process setup/start: {e.ToString()}");
         }
     }
-    finally // Dit blok wordt ALTIJD uitgevoerd, ook na een return of exception
+    finally 
     {
         // Verwijder het tijdelijke script bestand
         if (File.Exists(scriptPath))
@@ -232,32 +195,26 @@ app.MapPost("/runner", async (HttpContext context) =>
                  File.Delete(scriptPath);
                  debugLog.Add($"[Execute] Temporary script file deleted: {scriptPath}.");
             }
-            catch (Exception ex) // Vang fouten op bij het verwijderen
+            catch (Exception ex) 
             {
                 var deleteError = $"Failed to delete script file {scriptPath}: {ex.Message}";
-                // Log dit alleen, overschrijf niet de primaire stderr
                 debugLog.Add($"[Execute] WARNING: {deleteError}");
             }
         }
     }
 
-    // 4. Stuur Resultaat Terug (inclusief debug logs)
-    // Als er een fout was (stderr niet leeg OF exit code niet 0), stuur 400 Bad Request
+    // 4. Stuur resultaat terug met debug logs
     if (!string.IsNullOrEmpty(stderr) || exitCode != 0)
     {
         debugLog.Add("[Execute] Execution failed or produced stderr/non-zero exit code, returning BadRequest (400).");
         return Results.BadRequest(new { stdout, stderr, exitCode, debugLog });
     }
 
-    // Anders was het succesvol, stuur 200 OK
     debugLog.Add("[Execute] Execution successful, returning OK (200).");
     return Results.Ok(new { stdout, stderr, exitCode, debugLog });
 });
 
-// --- Start Applicatie ---
-// Luister op de poort die is opgegeven via de PORT environment variabele (standaard in containers)
-// of val terug op 6000 als die niet is ingesteld.
-// Zorg dat deze poort overeenkomt met EXPOSE in Dockerfile en Target Port in Azure.
+// Start app op poort uit .env of 6000 - 6000 is nodig om de app te kunnen bereiken in ACA
 var port = Environment.GetEnvironmentVariable("PORT") ?? "6000";
-app.Run($"http://*:{port}"); // Luister op alle netwerkinterfaces (*)
-Console.WriteLine($"API listening on port {port}..."); // Log dat de server start
+app.Run($"http://*:{port}"); 
+Console.WriteLine($"API listening on port {port}..."); 

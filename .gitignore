@@ -1,0 +1,58 @@
+# --- Algemeen ---
+# Omgevingsvariabelen
+# Nooit .env files committen, maar wel het template
+.env
+.env.*
+!*.env.example
+
+# IDE/Editor specifieke bestanden
+.vscode/
+.idea/
+*.suo
+*.user
+*.sln.docstates
+
+# --- Python ---
+# Virtual Environments
+/venv/
+/.venv/
+env/
+/env/
+.direnv/
+
+# Bytecode en caches
+*.pyc
+__pycache__/
+.pytest_cache/
+
+# --- C# / .NET ---
+# Binaries en build outputs
+[Bb]in/
+[Oo]bj/
+publish/
+
+# NuGet pakketten
+/packages/
+*.nupkg
+
+# --- React / Node.js ---
+# Dependencies
+/node_modules/
+
+# Build output
+/build/
+/dist/
+/.next/
+
+# Logbestanden
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Lock files (Afhankelijk van je voorkeur, maar meestal wil je deze wél committen)
+# package-lock.json
+# yarn.lock
+
+# --- OS-specifieke bestanden ---
+.DS_Store
+Thumbs.db
